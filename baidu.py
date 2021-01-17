@@ -33,5 +33,6 @@ class BaiduOCR(object):
         response = requests.post(request_url, data = data, headers = headers)
         if response:
             resjson = response.json()
-            word = resjson['words_result'][0]['words'].replace(' ', '')
-            return word
+            if resjson['words_result']:
+                word = resjson['words_result'][0]['words'].replace(' ', '')
+                return word
