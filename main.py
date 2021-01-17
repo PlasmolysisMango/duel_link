@@ -8,9 +8,7 @@ from ctypes import windll
 import operator
 from constant import *
 from PIL import Image
-import pytesseract
 from baidu import *
-import threading
 
 # 类定义以及初始实例化
 class Mouse(object):
