@@ -106,27 +106,30 @@ class Duel(object):
         self.hand_card = []
         self.hand_card_num = None
         self.hand_card_pos = []
-        self.phase = ''
+        self.phase = None
         self.turn = 0
         self.chain = False
 
-    def summon(self, index):
+    def summon(self, index, delay = 2):
         self.reflesh()
         mouse.slide(self.hand_card_pos[index][0], self.hand_card_pos[index][1], 'up')
         mouse.click(BUTTON1[0], BUTTON1[1])
-        cancle(3)
-        tick(3)
+        if delay:
+            cancle(delay)
+            tick(delay)
         self.hand_card_num -= 1
     
     def magic(self, index, target = None):
         self.reflesh()
         mouse.slide(self.hand_card_pos[index][0], self.hand_card_pos[index][1], 'up')
         mouse.click(BUTTON1[0], BUTTON1[1])
+        if target != None:
+            cancle(2)
+            tick(3)
+            mouse.click(EFFECT_SELECT[target][0], EFFECT_SELECT[target][1])
+            mouse.click(EFFECT_CONFIRM[0], EFFECT_CONFIRM[1])
+        cancle(2)
         tick(2)
-        if target:
-            mouse.click(EFFECT_BUTTON[target][0], EFFECT_BUTTON[target][1])
-        cancle(3)
-        tick(3)
         self.hand_card_num -= 1
     
     def set_spell(self, index): 
@@ -134,8 +137,8 @@ class Duel(object):
         mouse.slide(self.hand_card_pos[index][0], self.hand_card_pos[index][1], 'up')
         # mouse.click(BUTTON2[0], BUTTON2[1])
         mouse.click(BUTTON3[0], BUTTON3[1])
-        cancle(3)
-        tick(3)
+        cancle(2)
+        tick(2)
         self.hand_card_num -= 1
 
     def change_phase(self):
@@ -190,10 +193,11 @@ class Analyze(object):
         self.hwnd = mouse.handle
         self.hdc = win32gui.GetWindowDC(mouse.handle) #返回句柄窗口的设备环境，覆盖整个窗口，包括非客户区，标题栏，菜单，边框
         self.picpath = os.path.join('temp.bmp')
-        self.check_hand_picpath = os.path.join('pic', 'handcard.bmp')
         self.img = None
         self.online_ocr = BaiduOCR(APP_KEY, SECRET_KEY)
         self.routine = True
+        self.next = False
+        self.recent_chain = False
     
     def shot(self, filename = None):
         hdc = win32gui.GetWindowDC(mouse.parent_handle)
@@ -219,18 +223,16 @@ class Analyze(object):
             img = Image.open(filename)
             return img
 
-    def point_color(self, point, deta = 1):
+    def point_color(self, point, deta = 1, img = None):
         point = [point[0] + 1, point[1] + 34]
-        pixdata = self.img.load()
+        if not img: 
+            img = self.img
+        pixdata = img.load()
         rgb_s = pixdata[point[0], point[1]]
         for x in [deta, -deta]: 
             for y in [deta, -deta]:
                 t = pixdata[point[0] + x, point[1] + y]
                 rgb_s = [rgb_s[0] + t[0], rgb_s[1] + t[1], rgb_s[2] + t[2]]
-        # s = ''
-        # for i in rgb_s:
-        #     s += hex(int(i / 5))[2:]
-        # return s
         return (int(rgb_s[0] / 5), int(rgb_s[1] / 5), int(rgb_s[2] / 5))
     
     def rgb_compare(self, rgb, rgb_c, acc = 30):
@@ -265,7 +267,7 @@ class Analyze(object):
 
         return result
     
-    def pic_compare(self, im1, im2, acc = 30):
+    def pic_compare(self, im1, im2, acc = 30, show = False):
         # 缩小图标，转成灰度
         image1 = im1.resize((20, 20), Image.ANTIALIAS).convert("L")
         image2 = im2.resize((20, 20), Image.ANTIALIAS).convert("L")
@@ -278,8 +280,9 @@ class Analyze(object):
         hash2 = "".join(map(lambda p: "1" if p > avg2 else "0", pixels2))
         # 统计两个01串不同数字的个数
         match = sum(map(operator.ne, hash1, hash2))
-        print(match)
-        # 阀值设为20
+        if show:
+            print('识别阈值{}'.format(match))
+        # acc为识别阈值
         return match < acc
     
     def check_handcard_num(self, num = 5): # num 是期望的手牌数量，不超过5
@@ -287,46 +290,70 @@ class Analyze(object):
         for i in range(len(CHECK_HANDCARD) - num, len(CHECK_HANDCARD)):
             mouse.buttondown(CHECK_HANDCARD[i][0], CHECK_HANDCARD[i][1])
             tick(1)
-            self.shot()
+            img = self.shot('hand_card.bmp')
             tick(1)
             mouse.buttonup(CHECK_HANDCARD[i][0], CHECK_HANDCARD[i][1])
-            im1 = self.img.crop(crop_box)
-            im2 = Image.open(self.check_hand_picpath)
-            if self.pic_compare(im1, im2, 160):
-                del_file('temp.bmp')
+            rgb_c = (45, 47, 72)
+            rgb = (0, 0, 0)
+            for point in HAND_CARD_NUM_CHECK_POINT:
+                rgb = list_add(rgb, self.point_color(point, img = img, deta = 0))
+            rgb = list_div(rgb, len(HAND_CARD_NUM_CHECK_POINT))
+            del_file('hand_card.bmp')
+            if self.rgb_compare(rgb, rgb_c):
                 return len(CHECK_HANDCARD) - i
+            # else:
+            #     print(rgb)
     
     def routine_check(self, mode = 'phase'):
         img = self.shot('check.bmp')
 
         if 'phase' in mode: 
-            cropbox = (300, 84, 480, 112)
-            im1 = img.crop(cropbox).convert('L')
-            duel.phase = self.online_ocr.read(im1)
+            # cropbox = (300, 84, 480, 112)
+            # im1 = img.crop(cropbox).convert('L')
+            # duel.phase = self.online_ocr.read(im1)s
+
+            crop_box = (284, 83, 479, 110)
+            img_phase = img.crop(crop_box)
+            for phase_file in os.listdir('phase'):
+                img_c = Image.open(os.path.join('phase', phase_file))
+                if self.pic_compare(img_phase, img_c, 15): 
+                    duel.phase = phase_file[:-4]
+                    break
         
         if 'chain' in mode: 
-            cancle()
-            cropbox_chain = (5, 958, 89, 1019)
-            im_chain = img.crop(cropbox_chain).convert('L')
-            im_chain_tmp = Image.open('pic\\chain.bmp')
-            if self.pic_compare(im_chain, im_chain_tmp): 
-                if '对手' in duel.phase: 
-                    mouse.click(EFFECT_BUTTON[0][0], EFFECT_BUTTON[0][1])
-                    mouse.click(CHAIN_CONFRIM[0], CHAIN_CONFRIM[1])
+            self.recent_chain = False
+            while True:
+                cancle()
+                rgb_chain = (255, 255, 255)
+                rgb = self.point_list_color(CHAIN_CHECK_POINT, img)
+                chain = self.rgb_compare(rgb, rgb_chain, 20)
+                if chain:
+                    self.recent_chain = True 
+                    if '对手' in duel.phase: 
+                        mouse.click(CHAIN_SELECT[0][0], CHAIN_SELECT[0][1])
+                        mouse.click(CHAIN_CONFRIM[0], CHAIN_CONFRIM[1])
+                        cancle()
+                        tick(3)
+                        mouse.click(EFFECT_SELECT[0][0], EFFECT_SELECT[0][1])
+                        mouse.click(EFFECT_CONFIRM[0], EFFECT_CONFIRM[1])
+                    else:
+                        mouse.click(CHAIN_CANCEL[0], CHAIN_CANCEL[1])
+                    cancle()
+                    img = self.shot('check.bmp')
                 else:
-                    mouse.click(CHAIN_CANCEL[0], CHAIN_CANCEL[1])
-            cancle()
+                    break
         
         if mode:
             rgb_end = (47, 120, 2)
-            if self.rgb_compare(self.point_color(END_CHECK), rgb_end, 10):
+            if self.rgb_compare(self.point_color(END_CHECK, img = img), rgb_end, 10):
                 duel.phase = '决斗结束'
         
         if 'next' in mode:
+            self.next = False
             cropbox_next = (22, 949, 158, 1023)
             im_next = img.crop(cropbox_next).convert('L')
             im_next_c = Image.open(os.path.join('pic', 'next.bmp'))
-            return self.pic_compare(im_next, im_next_c, 10)
+            self.next = self.pic_compare(im_next, im_next_c, 50)
 
         del_file('check.bmp')
 
@@ -344,18 +371,38 @@ class Analyze(object):
         del_file('temp.bmp')
         return self.online_ocr.read(im1)
     
-    def check_ground_card(self, point_list, enemy = False):
-        rgb_detail_check = (0, 212, 249)
+    def check_ground_card(self, point_list):
         result = []
         for point in point_list:
-            mouse.click(point[0], point[1])
-            self.shot()
-            rgb = self.point_color(DETAIL_CHECK, deta = 0)
-            result.append(self.rgb_compare(rgb, rgb_detail_check, 10))
-            if enemy:
+            res = self.card_exist(point)
+            if res:
                 cancle()
-        del_file('temp.bmp')
-        return result    
+            result.append(res)
+        return result
+    
+    def target_card(self, point_list, mode = True, order = [1, 2, 0]): # 用于返回第一个存在的目标
+        for index in order:
+            res = self.card_exist(point_list[index])
+            if res == mode:
+                return index
+        return None
+    
+    def card_exist(self, card_point):
+        rgb_detail_check = (0, 212, 249)
+        mouse.click(card_point[0], card_point[1])
+        img = self.shot('c_exist.bmp')
+        rgb = self.point_color(DETAIL_CHECK, deta = 0, img = img)
+        del_file('c_exist.bmp')
+        return self.rgb_compare(rgb, rgb_detail_check, 10)
+    
+    def point_list_color(self, point_list, img):
+        rgb = (0, 0, 0)
+        for point in point_list:
+            rgb = list_add(rgb, self.point_color(point, img = img, deta = 0))
+        rgb = list_div(rgb, len(point_list))
+        return rgb
+
+
 
 analyze = Analyze()
 
@@ -394,19 +441,23 @@ def del_file(filename):
 
 def main():
     duel_start = True
+    duel_num = 1
     while True:
         if duel_start:
+            print('----第{}局----'.format(duel_num))
             mouse.click(PORT[0], PORT[1])
             tick(2)
             mouse.click(DUEL_START[0], DUEL_START[1])
             tick(2)
+            mouse.click(DUEL_CONFIRM[0], DUEL_CONFIRM[1])
             mouse.click(DUEL_START[0], DUEL_START[1])
             mouse.click(DUEL_START[0], DUEL_START[1])
-            tick(10)
-            tick(5)
+            tick(15)
             cancle(5)
-            while '阶段' in duel.phase:
+            while True:
                 analyze.routine_check()
+                if '阶段' in duel.phase:
+                    break
                 tick(2)
             duel_start = False
         if '你' in duel.phase:
@@ -420,120 +471,84 @@ def main():
                 duel.phase_flow()
             elif '主要' in duel.phase:
                 print(duel.phase)
-                print('确认手牌数量')
+                print('确认手牌数量...')
                 duel.hand_card_num = analyze.check_handcard_num()
+                print('手牌数量：{}'.format(duel.hand_card_num))
                 tick(2)
                 duel.hand_card = analyze.hand_card(eval('HAND_CARD_' + str(duel.hand_card_num)))
-                print('分析手牌构成：{}'.format(duel.hand_card))
-                if not normal_summon:    
+                print('分析手牌：{}'.format(duel.hand_card))
+                print('检查怪兽数量...')
+                duel.monster_fri = analyze.check_ground_card(MONSTER_F)
+                if not normal_summon and duel.monster_fri.count(True) < 3:    
                     for index in range(len(duel.hand_card)):
                         if 'monster' in duel.hand_card[index]:
                             print('召唤怪兽')
                             duel.summon(index)
                             del duel.hand_card[index]
                             normal_summon = True
+                            for index in [1, 2, 0]:
+                                if not duel.monster_fri[index]:
+                                    duel.monster_fri[index] = True
+                                    break
                             break
                 analyze.routine_check('chain')
                 if '决斗结束' in duel.phase:
                     continue
-                print('检查战场状况')
-                duel.spell_area = analyze.check_ground_card(SPELL_F)
-                duel.monster_fri = analyze.check_ground_card(MONSTER_F)
-                duel.monster_ene = analyze.check_ground_card(MONSTER_E, enemy = True)
-                while duel.spell_area.count(True) < 3 and duel.hand_card.count('trap') + duel.hand_card.count('magic') > 0: 
+                print('检查战场状况...')
+                if analyze.recent_chain:
+                    duel.monster_fri = analyze.check_ground_card(MONSTER_F)
+                while duel.hand_card.count('trap') + duel.hand_card.count('magic') > 0: 
+                    duel.spell_fri = analyze.check_ground_card(SPELL_F)
+                    if duel.spell_fri.count(True) > 2 or not duel.monster_fri.count(True):
+                        break
                     print('开始使用魔法陷阱')
                     for index in range(len(duel.hand_card)):
-                        if duel.monster_fri.count(True):
-                            if 'magic' in duel.hand_card[index]:
-                                duel.magic(index, target = 0)
-                                del duel.hand_card[index]
-                            elif 'trap' in duel.hand_card[index]: 
-                                duel.set_spell(index)
-                                del duel.hand_card[index]
-                        else:
-                            if 'trap' in duel.hand_card[index]: 
-                                duel.set_spell(index)
-                                del duel.hand_card[index]
-                        break
+                        if 'magic' in duel.hand_card[index]:
+                            print('我方有怪兽，使用魔法卡')
+                            duel.magic(index, target = 0)
+                            del duel.hand_card[index]
+                            break
+                        elif 'trap' in duel.hand_card[index]:
+                            print('盖放陷阱卡')
+                            duel.set_spell(index)
+                            del duel.hand_card[index]
+                            break
                     analyze.routine_check('chain')
                     if '决斗结束' in duel.phase:
-                        break
-                    duel.spell_area = analyze.check_ground_card(SPELL_F)
-                    if not 'magic' in duel.hand_card and not 'trap' in duel.hand_card: 
                         break
                 duel.change_phase()
                 analyze.routine_check('phase, chain')
             elif '战斗' in duel.phase:
                 print(duel.phase)
+                print('检查战场状况')
                 for index in [1, 2, 0]:
                     if duel.monster_fri[index]:
-                        target = None
-                        for index2 in [1, 2, 0]:
-                            if duel.monster_ene[index2]:
-                                target = index2
-                                break
+                        target = analyze.target_card(MONSTER_E)
+                        print('攻击：【{}】->【{}】'.format(index, target))
                         duel.attack(index, target)
+                        tick(1)
+                        analyze.routine_check('chain, end')
+                        if '决斗结束' in duel.phase:
+                            break
                 duel.change_phase()
+            elif '结束阶段' in duel.phase:
+                duel.phase_flow()
         elif '对手' in duel.phase:
-            print(duel.phase)
             analyze.routine_check('phase, chain')
-            tick(5)
+            print(duel.phase)
+            tick()
         elif '决斗结束' in duel.phase:
             print('决斗结束！')
-            while not analyze.routine_check('next'):
+            while not analyze.next:
                 mouse.click(END_BUTTON[0], END_BUTTON[1])
                 tick(2)
-            while not analyze.routine_check('next'):
-                mouse.click(END_BUTTON[0], END_BUTTON[1])
-                tick(2)
+                analyze.routine_check('next')
+                if analyze.next:
+                    tick()
+                    analyze.routine_check('next')
             duel_start = True
-
-                    
-                    
-
-
-
-
-                    
-
-            
-
-
-    # get_color()
-
-    # duel.summon()
-    # mouse.get_curse()
-    # duel.change_phase()
-    # duel.attack(2, 1)
-    # duel.attack(1, 1)
-    # duel.summon()
-    # duel.battle_phase()
-    # mouse.click(132, 508)
-    # tick(5)
-    
-    # analyze.shot()
-    # print(analyze.point_color(HAND_CARD_4[i]))
-    # for i in range(4):
-    #     print(analyze.point_color(HAND_CARD_4[i]))
-    # print(analyze.point_color((427, 58)))
-    # print(win32gui.GetWindowRect(mouse.handle))
-    # duel.summon()
-    # analyze.shot()
-    # print(win32gui.GetWindowRect(mouse.parent_handle))
-    # print(analyze.hand_card(HAND_CARD_4))
-    # print(analyze.check_handcard_num())
-    # tick(5)
-    # analyze.shot()
-    # img2 = analyze.img.crop((32, 114, 523, 833))
-    # img2 = img2.convert('L')
-    # img2.save('handcard.bmp')
-    # analyze.judge_turn()
-    # print(analyze.judge_card())
-    # print(analyze.monster())
-    # duel.change_phase()
-    # duel.attack(1, None)
+            analyze.next = False
+            duel_num += 1
 
 if __name__ == '__main__':
-    # main()
-    # get_color()
-    cancle(2)
+    main()
