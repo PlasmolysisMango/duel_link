@@ -2,10 +2,6 @@ import requests
 import base64
 from io import BytesIO
 
-APP_KEY = 'rXGQpX6DIavNqVoVMZ7r3804'
-SECRET_KEY = 'yWwxn889WFjaR2P14AM1HVn60a4jGPMD'
-# 修改为自己申请的百度api
-
 class BaiduOCR(object):
     def __init__(self, AKey, SKey):
         self.app_key = AKey
